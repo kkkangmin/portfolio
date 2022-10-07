@@ -1,0 +1,179 @@
+
+
+install.packages("devtools")
+
+install.package("broom") 
+install.package("lmtest")
+
+library(devtools)
+install_git("https://github.com/ccolonescu/PoEdata")
+
+library(lmtest)
+library(broom)
+library(PoEdata)
+library(car)
+library(sandwich)
+library(knitr)
+library(stargazer)
+library(nlme) 
+
+
+#############################################################
+## GLS for Heteroskedasticity (Cross-sectional Regression) ##
+
+data(food)
+summary(food)
+head(food) 
+
+# When the variance of  y, or of  e, 
+# which is the same thing, is not constant, 
+# we say that the response or the residuals are heteroskedastic. 
+# Figure shows, again, a scatter diagram of the food dataset 
+# with the regression line to show how the observations tend to be 
+# more spread at higher income.
+
+
+data("food", package ="PoEdata") 
+mod1 <- lm(food_exp~income, data = food)
+plot(food$income, food$food_exp, type= "p", xlab = "income", ylab = "food expenditure") 
+abline(mod1) 
+
+
+#Another useful method to visualize possible heteroskedasticity is 
+#to plot the residuals against the regressors suspected of 
+#creating heteroskedasticity, or, more generally, 
+#against the fitted values of the regression. 
+#The following Figure shows both these options for the simple food_exp model.
+
+
+res = residuals(mod1)
+yhat = fitted(mod1)
+plot(food$income,res, xlab="income", ylab="residuals")
+plot(yhat, res, xlab="fitted values", ylab="residuals")
+
+#The Goldfeld-Quandt heteroskedasticity test is useful 
+#when the regression model to be tested includes an indicator variable among its regressors. 
+#The test compares the variance of one group of the indicator variable (say group 1) 
+#to the variance of the benchmark group (say group  0),
+
+#The test statistic when the null hyppthesis is true 
+#has an  F distribution with its two degrees of freedom equal to 
+#the degrees of freedom of the two subsamples, respectively  N1-K  and  N0-K.
+
+#Let us apply this test to a  wage equation based on the dataset  cps2, 
+#where  metrometro  is an indicator variable equal to 1 
+# if the individual lives in a metropolitan area and  0 for rural area. 
+#I will split the dataset in two based on the indicator variable metro 
+#and apply the regression model (Equation below) separately to each group.
+
+# Wage = beta_1 + beta_2 *educ + beta_3*exper + beta_4*metro + e 
+
+alpha <- 0.05 #two tail, will take alpha/2
+data("cps2", package="PoEdata")
+#Create the two groups, m (metro) and r (rural)
+m <- cps2[which(cps2$metro==1),]
+r <- cps2[which(cps2$metro==0),]
+wg1 <- lm(wage~educ+exper, data=m)
+wg0 <- lm(wage~educ+exper, data=r)
+df1 <- wg1$df.residual #Numerator degrees of freedom
+df0 <- wg0$df.residual #Denominatot df
+wg1
+wg0
+glance(wg1)
+sig1squared <- glance(wg1)$sigma^2
+sig0squared <- glance(wg0)$sigma^2
+fstat <- sig1squared/sig0squared
+Flc <- qf(alpha/2, df1, df0)#Left (lower) critical F
+Fuc <- qf(1-alpha/2, df1, df0) #Right (upper) critical F
+
+
+Flc
+Fuc
+fstat
+
+#The results of these calculations are as follows: 
+#calculated  FF  statistic  F=2.09, the lower tail critical value  
+#Flc=0.81, and the upper tail critical value 
+#Fuc=1.26. Since the calculated amount is greater than 
+#the upper critical value, we reject the hypothesis that the two variances are equal, 
+#facing, thus, a heteroskedasticity problem. 
+
+
+#Since the presence of heteroskedasticity makes the lest-squares standard errors incorrect, 
+#there is a need for another method to calculate them. White robust standard errors is such a method.
+
+#The  R  function that does this job is hccm(), which is part of the car package and yields a 
+#heteroskedasticity-robust coefficient covariance matrix. This matrix can then be used with other 
+#functions, such as coeftest() (instead of summary), waldtest() (instead of anova), or 
+#linearHypothesis() to perform hypothesis testing. The function hccm() takes several 
+#arguments, among which is the model for which we want the robust standard errors and the 
+#type of standard errors we wish to calculate. type can be ¡°constant¡± (the regular 
+#homoskedastic errors), ¡°hc0¡±, ¡°hc1¡±, ¡°hc2¡±, ¡°hc3¡±, or ¡°hc4¡±; ¡°hc1¡± is the default type in some 
+#statistical software packages. Let us compute robust standard errors for the basic food 
+#equation and compare them with the regular (incorrect) ones.
+
+
+#Usual OLS 
+wageeq <- lm(wage~educ+exper,data=cps2)
+
+
+#Robust OLS (OLS with corrected covariance matrix)  
+cov1 <- hccm(wageeq, type="hc1") #needs package 'car'
+wage.HC1 <- lmtest::coeftest(wageeq, vcov.=cov1)
+
+
+#APPLY GLS (WEIGHTED LEAST SQUARES) 
+w <- 1/cps2$educ
+wage.wls <- lm(wage~educ+exper, weights=w, data=cps2)
+
+
+#GLS known form of variance 
+
+data("cps2", package="PoEdata")
+wage.ols <- lm(wage~educ+exper, data=cps2)
+ehatsq <- resid(wage.ols)^2
+sighatsq.ols  <- lm(log(ehatsq)~log(educ), data=cps2)
+vari <- fitted(sighatsq.ols)^(1/2)
+wage.fgls <- lm(wage~educ+exper, weights=1/vari, data=cps2)
+
+kable(tidy(wageeq),caption=
+ "Regular standard errors in the 'wage' equation")
+kable(tidy(wage.HC1),caption=
+  "Robust (HC1) standard errors in the 'wage' equation")
+kable(tidy(wage.wls),
+  caption="WLS estimates for the 'wage' equation" )
+kable(tidy(wage.fgls),
+  caption="FGLS estimates for the 'wage' equation" )
+
+
+######################################################
+## GLS for Autocorrelation (Time-series Regression) ##
+
+
+
+Hartnagel
+plot(fconvict ~ year, type = "o", pch= 16, data = Hartnagel, ylab = "Convictions per 100,000 women") 
+
+mod.ols <- lm(fconvict ~ tfr + partic + degrees + mconvict, data = Hartnagel) 
+summary(mod.ols) 
+
+plot(Hartnagel$year, residuals(mod.ols), type = "o", och = 16, xlab="Year", ylab="OLS Residuals") 
+abline(h=0, lty = 2) 
+
+acf(residuals(mod.ols))
+acf(residuals(mod.ols), type="partial") 
+durbinWatsonTest(mod.ols, max.lag = 5) 
+
+dwtest(mod.ols, alternative="two.sided") 
+
+mod.gls <- gls(fconvict ~ tfr + partic+degrees+mconvict, data=Hartnagel, correlation=corARMA(p=2), method="ML") 
+summary(mod.gls) 
+
+mod.gls.3 <- update(mod.gls, correlation=corARMA(p=3))
+mod.gls.1 <- update(mod.gls, correlation=corARMA(p=1))
+mod.gls.0 <- update(mod.gls, correlation=NULL)
+anova(mod.gls, mod.gls.1)
+
+
+
+
